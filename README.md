@@ -1,6 +1,9 @@
 # WAN Hardware Inventory
 
-A comprehensive web application for managing and tracking hardware inventory across Wide Area Networks (WANs).
+A comprehensive web application for managing and tracking hardware inventory.
+
+<img width="1918" height="862" alt="image" src="https://github.com/user-attachments/assets/8d1312a2-bcb7-45db-ac0a-c5c555dd4640" />
+
 
 ## Description
 
