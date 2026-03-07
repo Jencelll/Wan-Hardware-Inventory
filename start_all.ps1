@@ -1,0 +1,2 @@
+Start-Process powershell -ArgumentList "-NoExit","-File","C:\Users\recy\wan-hardware-inventory\run_php.ps1"
+Start-Process powershell -ArgumentList "-NoExit","-File","C:\Users\recy\wan-hardware-inventory\run_vite.ps1"

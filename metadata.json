@@ -1,0 +1,5 @@
+{
+  "name": "WAN Hardware Inventory",
+  "description": "A professional inventory management system for WAN Hardware, featuring stock tracking, sales logging, and automated reporting.",
+  "requestFramePermissions": []
+}
