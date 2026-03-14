@@ -51,6 +51,7 @@ import { Item, Transaction } from '../types';
 
 import { InvoiceTemplate } from '../components/InvoiceTemplate';
 import { DeliveryReceiptTemplate } from '../components/DeliveryReceiptTemplate';
+import { ReceiptModal } from '../components/ReceiptModal';
 import { useReactToPrint } from 'react-to-print';
 
 function cn(...inputs: ClassValue[]) {
@@ -96,23 +97,6 @@ export default function CatMoonDashboard() {
   // Invoice State
   const [invoiceData, setInvoiceData] = useState<any>(null);
   const [receiptType, setReceiptType] = useState<'INVOICE' | 'DELIVERY'>('INVOICE');
-  const invoiceRef = React.useRef<HTMLDivElement>(null);
-  const deliveryRef = React.useRef<HTMLDivElement>(null);
-  
-  const handlePrint = useReactToPrint({
-    contentRef: receiptType === 'INVOICE' ? invoiceRef : deliveryRef,
-    documentTitle: `${receiptType === 'INVOICE' ? 'Invoice' : 'DeliveryReceipt'}-${invoiceData?.id || 'New'}`,
-    onAfterPrint: () => setInvoiceData(null),
-  });
-
-  useEffect(() => {
-    if (invoiceData && (invoiceRef.current || deliveryRef.current)) {
-      // Small delay to ensure refs are attached before printing
-      setTimeout(() => {
-        handlePrint();
-      }, 100);
-    }
-  }, [invoiceData]);
 
   const safeFormat = (dateStr: string | undefined, formatStr: string) => {
     if (!dateStr) return 'N/A';
@@ -1975,11 +1959,13 @@ export default function CatMoonDashboard() {
         )}
       </AnimatePresence>
 
-      {/* Hidden Invoice Component */}
-      <div style={{ display: 'none' }}>
-        {invoiceData && receiptType === 'INVOICE' && <InvoiceTemplate ref={invoiceRef} transaction={invoiceData} />}
-        {invoiceData && receiptType === 'DELIVERY' && <DeliveryReceiptTemplate ref={deliveryRef} transaction={invoiceData} />}
-      </div>
+      {/* Receipt Modal */}
+      <ReceiptModal 
+        isOpen={!!invoiceData} 
+        onClose={() => setInvoiceData(null)} 
+        data={invoiceData} 
+        type={receiptType} 
+      />
     </main>
     </motion.div>
   );
