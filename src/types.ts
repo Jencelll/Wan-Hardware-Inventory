@@ -45,4 +45,5 @@ export interface Transaction {
   customer_name?: string;
   customer_address?: string;
   customer_tin?: string;
+  receipt_number?: string;
 }

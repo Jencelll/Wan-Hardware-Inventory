@@ -18,7 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     
     Route::apiResource('items', ItemController::class);
-    Route::apiResource('transactions', TransactionController::class)->only(['index', 'store']);
+    Route::apiResource('transactions', TransactionController::class)->only(['index', 'store', 'update']);
     Route::apiResource('suppliers', SupplierController::class);
     
     // User Management

@@ -16,6 +16,7 @@ interface SearchableSelectProps {
   placeholder?: string;
   className?: string;
   required?: boolean;
+  resetOnSelect?: boolean;
 }
 
 export default function SearchableSelect({ 
@@ -24,7 +25,8 @@ export default function SearchableSelect({
   onChange, 
   placeholder = "Select an item...", 
   className,
-  required = false
+  required = false,
+  resetOnSelect = false
 }: SearchableSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,7 +61,11 @@ export default function SearchableSelect({
 
   const handleSelect = (item: Item) => {
     onChange(item.id);
-    setSelectedItem(item);
+    if (resetOnSelect) {
+      setSelectedItem(null);
+    } else {
+      setSelectedItem(item);
+    }
     setIsOpen(false);
     setSearchTerm('');
   };
@@ -113,6 +119,7 @@ export default function SearchableSelect({
         <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
           {selectedItem && (
             <button 
+              type="button"
               onClick={handleClear}
               className="p-1 text-stone-400 hover:text-rose-500 hover:bg-rose-50 rounded-full transition-colors"
             >
@@ -165,6 +172,7 @@ export default function SearchableSelect({
                 <div className="space-y-0.5">
                   {filteredItems.map(item => (
                     <button
+                      type="button"
                       key={item.id}
                       onClick={(e) => {
                         e.stopPropagation();

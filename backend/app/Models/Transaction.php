@@ -21,6 +21,7 @@ class Transaction extends Model
         'customer_name',
         'customer_address',
         'customer_tin',
+        'receipt_number',
     ];
 
     protected $appends = ['item_name'];

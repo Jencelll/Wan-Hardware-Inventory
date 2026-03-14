@@ -9,7 +9,7 @@ interface ReceiptModalProps {
   isOpen: boolean;
   onClose: () => void;
   data: any;
-  type: 'INVOICE' | 'DELIVERY';
+  type: string;
 }
 
 export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, data, type }) => {
@@ -37,7 +37,9 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, dat
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-gray-100 bg-white z-10">
               <h3 className="text-lg font-bold text-gray-900">
-                {type === 'INVOICE' ? 'Sales Invoice Preview' : 'Delivery Receipt Preview'}
+                {type === 'INVOICE' ? 'Sales Invoice Preview' : 
+                 type === 'DELIVERY' ? 'Delivery Receipt Preview' :
+                 `${type} Preview`}
               </h3>
               <div className="flex items-center gap-2">
                 <button
@@ -59,10 +61,10 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ isOpen, onClose, dat
             {/* Content */}
             <div className="flex-1 overflow-auto p-8 bg-gray-50 flex justify-center">
               <div className="shadow-lg bg-white origin-top scale-90 sm:scale-100">
-                 {type === 'INVOICE' ? (
-                   <InvoiceTemplate ref={componentRef} transaction={data} />
-                 ) : (
+                 {type === 'DELIVERY' ? (
                    <DeliveryReceiptTemplate ref={componentRef} transaction={data} />
+                 ) : (
+                   <InvoiceTemplate ref={componentRef} transaction={data} title={type === 'INVOICE' ? undefined : type} />
                  )}
               </div>
             </div>

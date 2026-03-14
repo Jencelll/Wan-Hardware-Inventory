@@ -16,6 +16,23 @@ class TransactionController extends Controller
         return Transaction::where('store', $store)->with('item')->orderBy('date', 'desc')->limit(1000)->get();
     }
 
+    public function update(Request $request, $id)
+    {
+        $validated = $request->validate([
+            'date' => 'required|date',
+        ]);
+
+        $transaction = Transaction::find($id);
+        if (!$transaction) {
+            return response()->json(['message' => 'Transaction not found'], 404);
+        }
+
+        $transaction->date = Carbon::parse($validated['date']);
+        $transaction->save();
+
+        return response()->json($transaction);
+    }
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -29,6 +46,7 @@ class TransactionController extends Controller
             'customer_name' => 'nullable|string',
             'customer_address' => 'nullable|string',
             'customer_tin' => 'nullable|string',
+            'receipt_number' => 'nullable|string',
         ]);
         
         $store = $request->user()->store ?? 'WAN';

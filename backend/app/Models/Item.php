@@ -19,6 +19,7 @@ class Item extends Model
         'retail_price',
         'initial_count',
         'current_stock',
+        'created_at',
     ];
 
     public function transactions()

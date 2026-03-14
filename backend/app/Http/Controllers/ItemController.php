@@ -68,7 +68,8 @@ class ItemController extends Controller
             'uom' => 'required',
             'cost_price' => 'required|numeric',
             'retail_price' => 'required|numeric',
-            'initial_count' => 'required|integer',
+            'initial_count' => 'required|numeric',
+            'created_at' => 'nullable|date',
         ]);
         
         $store = $request->user()->store ?? 'WAN';

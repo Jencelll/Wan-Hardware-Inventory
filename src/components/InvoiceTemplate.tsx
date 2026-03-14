@@ -2,6 +2,7 @@ import React from 'react';
 import { format } from 'date-fns';
 
 interface InvoiceProps {
+  title?: string;
   transaction: {
     id: number;
     date: string;
@@ -19,7 +20,7 @@ interface InvoiceProps {
   };
 }
 
-export const InvoiceTemplate = React.forwardRef<HTMLDivElement, InvoiceProps>(({ transaction }, ref) => {
+export const InvoiceTemplate = React.forwardRef<HTMLDivElement, InvoiceProps>(({ transaction, title }, ref) => {
   return (
     <div ref={ref} className="bg-white p-8 max-w-[800px] mx-auto text-black font-serif text-sm">
       {/* Header */}
@@ -31,7 +32,7 @@ export const InvoiceTemplate = React.forwardRef<HTMLDivElement, InvoiceProps>(({
           <p className="text-[10px] w-64">General Luna St. cor. Lopez Jaena St., Angeles Zone IV, City of Tayabas Quezon, Philippines, 4327</p>
         </div>
         <div className="text-right">
-          <h2 className="text-xl font-bold font-serif">SALES INVOICE</h2>
+          <h2 className="text-xl font-bold font-serif">{title || 'SALES INVOICE'}</h2>
           <div className="flex items-center justify-end gap-2 mt-1">
             <span className="font-bold text-red-600 text-xl">No</span>
             <span className="font-bold text-red-600 text-2xl">{transaction.id}</span>
