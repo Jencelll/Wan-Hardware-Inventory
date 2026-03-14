@@ -10,6 +10,7 @@ class Transaction extends Model
     use HasFactory;
 
     protected $fillable = [
+        'store',
         'item_id',
         'type',
         'quantity',
@@ -17,9 +18,16 @@ class Transaction extends Model
         'cost_price',
         'retail_price',
         'date',
+        'customer_name',
+        'customer_address',
+        'customer_tin',
     ];
 
     protected $appends = ['item_name'];
+
+    protected $casts = [
+        'date' => 'datetime',
+    ];
 
     public function item()
     {

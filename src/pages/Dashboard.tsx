@@ -46,13 +46,18 @@ import { format } from 'date-fns';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'motion/react';
+import SearchableSelect from '../components/SearchableSelect';
 import { Item, Transaction } from '../types';
+
+import { InvoiceTemplate } from '../components/InvoiceTemplate';
+import { DeliveryReceiptTemplate } from '../components/DeliveryReceiptTemplate';
+import { useReactToPrint } from 'react-to-print';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-type Tab = 'dashboard' | 'inventory' | 'stock-in' | 'stock-out' | 'register' | 'settings' | 'users';
+type Tab = 'dashboard' | 'inventory' | 'stock-in' | 'stock-out' | 'receipts' | 'register' | 'settings' | 'users';
 
 export default function Dashboard() {
   const { user, logout } = useAuth();
@@ -69,6 +74,15 @@ export default function Dashboard() {
   // Filter States
   const [filterStatus, setFilterStatus] = useState<'ALL' | 'LOW_STOCK' | 'OUT_OF_STOCK'>('ALL');
   const [showDailySalesModal, setShowDailySalesModal] = useState(false);
+  const [stockInSearch, setStockInSearch] = useState('');
+  const [stockOutSearch, setStockOutSearch] = useState('');
+  const [selectedStockInItem, setSelectedStockInItem] = useState<number>(0);
+  const [selectedStockOutItem, setSelectedStockOutItem] = useState<number>(0);
+
+  // Receipts Filter States
+  const [receiptMonth, setReceiptMonth] = useState<string>(new Date().getMonth().toString());
+  const [receiptYear, setReceiptYear] = useState<string>(new Date().getFullYear().toString());
+  const [receiptTypeFilter, setReceiptTypeFilter] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
 
   // Edit State
   const [editingItem, setEditingItem] = useState<Item | null>(null);
@@ -78,6 +92,27 @@ export default function Dashboard() {
   const [showOldPassword, setShowOldPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // Invoice State
+  const [invoiceData, setInvoiceData] = useState<any>(null);
+  const [receiptType, setReceiptType] = useState<'INVOICE' | 'DELIVERY'>('INVOICE');
+  const invoiceRef = React.useRef<HTMLDivElement>(null);
+  const deliveryRef = React.useRef<HTMLDivElement>(null);
+  
+  const handlePrint = useReactToPrint({
+    contentRef: receiptType === 'INVOICE' ? invoiceRef : deliveryRef,
+    documentTitle: `${receiptType === 'INVOICE' ? 'Invoice' : 'DeliveryReceipt'}-${invoiceData?.id || 'New'}`,
+    onAfterPrint: () => setInvoiceData(null),
+  });
+
+  useEffect(() => {
+    if (invoiceData && (invoiceRef.current || deliveryRef.current)) {
+      // Small delay to ensure refs are attached before printing
+      setTimeout(() => {
+        handlePrint();
+      }, 100);
+    }
+  }, [invoiceData]);
 
   const safeFormat = (dateStr: string | undefined, formatStr: string) => {
     if (!dateStr) return 'N/A';
@@ -160,14 +195,17 @@ export default function Dashboard() {
         body: JSON.stringify(editingItem)
       });
 
-      if (!res.ok) throw new Error('Failed to update item');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'Failed to update item');
+      }
       
       setEditingItem(null);
       fetchData();
       alert('Item updated successfully');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Update Failed:', error);
-      alert('Failed to update item.');
+      alert(`Failed to update item: ${error.message}`);
     }
   };
 
@@ -179,7 +217,21 @@ export default function Dashboard() {
       timeStyle: 'medium' 
     });
 
-    const data = filteredItems.map((item, index) => ({
+    // --- Helper: Auto-fit Columns ---
+    const getColumnWidths = (data: any[]) => {
+      if (data.length === 0) return [];
+      const keys = Object.keys(data[0]);
+      return keys.map(key => {
+        const maxLength = Math.max(
+          key.length,
+          ...data.map(row => (row[key] ? String(row[key]).length : 0))
+        );
+        return { wch: maxLength + 5 }; // Add padding
+      });
+    };
+
+    // --- 1. REGISTER SHEET ---
+    const registerData = filteredItems.map((item, index) => ({
       'SEQ. #': index + 1,
       'INVENTORY NAME': item.name,
       'ITEM CODE': item.item_code,
@@ -194,17 +246,74 @@ export default function Dashboard() {
       'ENDING STOCK': item.current_stock
     }));
 
-    // Start data at row 3 (A3) to make space for headers
-    const worksheet = XLSX.utils.json_to_sheet(data, { origin: 'A3' });
-
-    // Add Header Information
-    XLSX.utils.sheet_add_aoa(worksheet, [
-      ['WAN HARDWARE INVENTORY REPORT'],
+    const registerSheet = XLSX.utils.json_to_sheet(registerData, { origin: 'A3' } as any);
+    registerSheet['!cols'] = getColumnWidths(registerData); // Set column widths
+    
+    XLSX.utils.sheet_add_aoa(registerSheet, [
+      ['WAN HARDWARE INVENTORY REGISTER REPORT'],
       [`Generated on: ${phTime}`]
     ], { origin: 'A1' });
 
+    // --- 2. STOCK IN SHEET ---
+    const stockInTransactions = transactions
+      .filter(t => t.type === 'IN')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const stockInData = stockInTransactions.map(t => {
+      const item = items.find(i => i.id === t.item_id);
+      const costPrice = t.cost_price || item?.cost_price || 0;
+      return {
+        'DATE': safeFormat(t.date, 'MMMM d, yyyy'),
+        'ITEM NAME': t.item_name || item?.name || 'Unknown',
+        'PARTICULARS': t.particulars,
+        'COST PRICE': costPrice,
+        'AMOUNT': costPrice * t.quantity,
+        'QTY': t.quantity,
+        'ENDING STOCK': item?.current_stock || 0
+      };
+    });
+
+    const stockInSheet = XLSX.utils.json_to_sheet(stockInData, { origin: 'A3' } as any);
+    stockInSheet['!cols'] = getColumnWidths(stockInData); // Set column widths
+
+    XLSX.utils.sheet_add_aoa(stockInSheet, [
+      ['WAN HARDWARE STOCK IN REPORT'],
+      [`Generated on: ${phTime}`]
+    ], { origin: 'A1' });
+
+    // --- 3. STOCK OUT SHEET ---
+    const stockOutTransactions = transactions
+      .filter(t => t.type === 'OUT')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const stockOutData = stockOutTransactions.map(t => {
+      const item = items.find(i => i.id === t.item_id);
+      const retailPrice = t.retail_price || item?.retail_price || 0;
+      return {
+        'DATE': safeFormat(t.date, 'MMMM d, yyyy'),
+        'ITEM NAME': t.item_name || item?.name || 'Unknown',
+        'PARTICULARS': t.particulars,
+        'RETAIL PRICE': retailPrice,
+        'AMOUNT': retailPrice * t.quantity,
+        'QTY': t.quantity,
+        'ENDING STOCK': item?.current_stock || 0
+      };
+    });
+
+    const stockOutSheet = XLSX.utils.json_to_sheet(stockOutData, { origin: 'A3' } as any);
+    stockOutSheet['!cols'] = getColumnWidths(stockOutData); // Set column widths
+
+    XLSX.utils.sheet_add_aoa(stockOutSheet, [
+      ['WAN HARDWARE STOCK OUT REPORT'],
+      [`Generated on: ${phTime}`]
+    ], { origin: 'A1' });
+
+    // --- CREATE WORKBOOK ---
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "REGISTER");
+    XLSX.utils.book_append_sheet(workbook, registerSheet, "REGISTER");
+    XLSX.utils.book_append_sheet(workbook, stockInSheet, "STOCK IN");
+    XLSX.utils.book_append_sheet(workbook, stockOutSheet, "STOCK OUT");
+
     XLSX.writeFile(workbook, "WAN_HARDWARE_INVENTORY.xlsx");
   };
 
@@ -222,6 +331,11 @@ export default function Dashboard() {
 
     setPasswordError(null);
     const item = items.find(i => i.id === itemId);
+    
+    const customerName = formData.get('customer_name') as string;
+    const customerAddress = formData.get('customer_address') as string;
+    const customerTIN = formData.get('customer_tin') as string;
+
     const data = {
       id: Date.now(),
       item_id: itemId,
@@ -231,7 +345,10 @@ export default function Dashboard() {
       particulars: formData.get('particulars') as string,
       cost_price: item?.cost_price,
       retail_price: item?.retail_price,
-      date: new Date().toISOString()
+      date: new Date().toISOString(),
+      customer_name: customerName,
+      customer_address: customerAddress,
+      customer_tin: customerTIN
     };
 
     try {
@@ -245,13 +362,105 @@ export default function Dashboard() {
         },
         body: JSON.stringify(data)
       });
-      if (!res.ok) throw new Error('API error');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'API error');
+      }
+      
+      const serverResponse = await res.json();
+      
+      // Reset form states
+      if (type === 'IN') {
+        setSelectedStockInItem(0);
+        setReceiptType('DELIVERY');
+        
+        setInvoiceData({
+          id: serverResponse.id || data.id,
+          date: serverResponse.date || data.date,
+          deliveredTo: customerName || 'WAN HARDWARE',
+          address: customerAddress || '',
+          tin: customerTIN || '',
+          terms: formData.get('terms') as string || '',
+          businessStyle: formData.get('business_style') as string || '',
+          items: [{
+            quantity: qty,
+            unit: item?.uom || 'PCS',
+            description: item?.name || 'Unknown Item'
+          }]
+        });
+      }
+      
+      if (type === 'OUT') {
+        setSelectedStockOutItem(0);
+        setReceiptType('INVOICE');
+        
+        // Prepare invoice data using server response ID
+        const retailPrice = item?.retail_price || 0;
+        
+        setInvoiceData({
+          id: serverResponse.id || data.id,
+          date: serverResponse.date || data.date,
+          customerName,
+          customerAddress,
+          customerTIN,
+          items: [{
+            quantity: qty,
+            unit: item?.uom || 'PCS',
+            description: item?.name || 'Unknown Item',
+            unitPrice: retailPrice,
+            amount: retailPrice * qty
+          }],
+          totalAmount: retailPrice * qty
+        });
+      }
+      
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Transaction Failed:', error);
-      alert('Transaction failed to save.');
+      alert(`Transaction failed to save: ${error.message}`);
     }
     setActiveTab('inventory');
+  };
+
+  // Helper to re-print a receipt from history
+  const handleReprintReceipt = (t: Transaction) => {
+    const item = items.find(i => i.id === t.item_id) || { name: t.item_name || 'Unknown', uom: 'PCS', retail_price: t.retail_price || 0 };
+    const retailPrice = t.retail_price || item.retail_price || 0;
+    
+    if (t.type === 'IN') {
+      setReceiptType('DELIVERY');
+      setInvoiceData({
+        id: t.id,
+        date: t.date,
+        deliveredTo: t.customer_name || 'WAN HARDWARE',
+        address: t.customer_address || '',
+        tin: t.customer_tin || '',
+        terms: '',
+        businessStyle: '',
+        items: [{
+          quantity: t.quantity,
+          unit: item.uom,
+          description: item.name
+        }]
+      });
+    } else {
+      setReceiptType('INVOICE');
+      setInvoiceData({
+        id: t.id,
+        date: t.date,
+        customerName: t.customer_name || '',
+        customerAddress: t.customer_address || '',
+        customerTIN: t.customer_tin || '',
+        items: [{
+          quantity: t.quantity,
+          unit: item.uom,
+          description: item.name,
+          unitPrice: retailPrice,
+          amount: retailPrice * t.quantity
+        }],
+        totalAmount: retailPrice * t.quantity
+      });
+    }
   };
 
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -283,11 +492,14 @@ export default function Dashboard() {
         },
         body: JSON.stringify(newItem)
       });
-      if (!res.ok) throw new Error('API error');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || 'API error');
+      }
       fetchData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Registration Failed:', error);
-      alert('Failed to register item.');
+      alert(`Failed to register item: ${error.message}`);
     }
     setActiveTab('inventory');
   };
@@ -428,6 +640,12 @@ export default function Dashboard() {
             onClick={() => handleTabChange('stock-out')}
             icon={<MinusCircle size={20} />}
             label="Stock Out"
+          />
+          <SidebarLink 
+            active={activeTab === 'receipts'} 
+            onClick={() => handleTabChange('receipts')}
+            icon={<ClipboardList size={20} />}
+            label="Receipts History"
           />
           <SidebarLink 
             active={activeTab === 'register'} 
@@ -732,10 +950,6 @@ export default function Dashboard() {
                         <tbody className="divide-y divide-stone-100/60">
                           {filteredItems.map((item, index) => (
                             <tr key={item.id} className="hover:bg-stone-50/80 transition-colors group">
-                              <td className="px-6 py-5 text-[10px] font-bold text-stone-400">{index + 1}</td>
-                              <td className="px-6 py-5">
-                                <p className="font-bold text-stone-800 group-hover:text-emerald-600 transition-colors">{item.name}</p>
-                              </td>
                               <td className="px-6 py-5 font-mono text-xs text-stone-400">{item.item_code}</td>
                               <td className="px-6 py-5">
                                 <span className="px-2.5 py-1 bg-stone-100 text-stone-500 rounded-lg text-[10px] font-bold uppercase tracking-wider">
@@ -794,12 +1008,13 @@ export default function Dashboard() {
                       <form onSubmit={(e) => handleTransaction(e, 'IN')} className="space-y-8">
                         <div className="space-y-3">
                           <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Select Item</label>
-                          <select name="item_id" required className="input-refined">
-                            <option value="">Choose an item...</option>
-                            {items.map(item => (
-                              <option key={item.id} value={item.id}>{item.name} ({item.item_code})</option>
-                            ))}
-                          </select>
+                          <SearchableSelect 
+                            items={items} 
+                            value={selectedStockInItem} 
+                            onChange={setSelectedStockInItem} 
+                            placeholder="Search for an item..."
+                            required
+                          />
                         </div>
 
                         <div className="grid grid-cols-2 gap-8">
@@ -818,6 +1033,35 @@ export default function Dashboard() {
                           </div>
                         </div>
 
+                        {/* Delivery Details for Receipt */}
+                        <div className="space-y-4 border-t border-stone-100 pt-4">
+                          <h4 className="text-sm font-bold text-stone-900">Delivery Details (Optional for Receipt)</h4>
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Delivered To</label>
+                            <input type="text" name="customer_name" className="input-refined" placeholder="Enter supplier/receiver name" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-8">
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Address</label>
+                              <input type="text" name="customer_address" className="input-refined" placeholder="Enter address" />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">TIN</label>
+                              <input type="text" name="customer_tin" className="input-refined" placeholder="Enter TIN" />
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-8">
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Terms</label>
+                              <input type="text" name="terms" className="input-refined" placeholder="e.g. Cash, 30 Days" />
+                            </div>
+                            <div className="space-y-3">
+                              <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Business Style</label>
+                              <input type="text" name="business_style" className="input-refined" placeholder="Enter business style" />
+                            </div>
+                          </div>
+                        </div>
+
                         <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold transition-all shadow-xl active:scale-[0.98] shadow-emerald-200">
                           Confirm Stock In
                         </button>
@@ -832,6 +1076,16 @@ export default function Dashboard() {
                         <p className="text-xs font-bold text-stone-500 uppercase tracking-widest">
                           Stock In History
                         </p>
+                      </div>
+                      <div className="relative group">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-emerald-500 transition-colors" size={14} />
+                        <input 
+                          type="text" 
+                          placeholder="Search history..." 
+                          className="pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-xs font-bold text-stone-600 focus:outline-hidden focus:ring-4 focus:ring-emerald-500/5 transition-all w-48"
+                          value={stockInSearch}
+                          onChange={(e) => setStockInSearch(e.target.value)}
+                        />
                       </div>
                     </div>
                     
@@ -850,14 +1104,28 @@ export default function Dashboard() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-stone-100/60">
-                            {transactions.filter(t => t.type === 'IN').length === 0 && (
+                            {transactions
+                              .filter(t => t.type === 'IN')
+                              .filter(t => 
+                                t.item_name?.toLowerCase().includes(stockInSearch.toLowerCase()) ||
+                                t.particulars.toLowerCase().includes(stockInSearch.toLowerCase()) ||
+                                safeFormat(t.date, 'MMMM d, yyyy').toLowerCase().includes(stockInSearch.toLowerCase())
+                              )
+                              .length === 0 && (
                               <tr>
                                 <td colSpan={7} className="px-6 py-10 text-center text-stone-400 text-xs font-medium italic">
-                                  No stock in transactions recorded yet.
+                                  No stock in transactions found.
                                 </td>
                               </tr>
                             )}
-                            {transactions.filter(t => t.type === 'IN').map((t) => {
+                            {transactions
+                              .filter(t => t.type === 'IN')
+                              .filter(t => 
+                                t.item_name?.toLowerCase().includes(stockInSearch.toLowerCase()) ||
+                                t.particulars.toLowerCase().includes(stockInSearch.toLowerCase()) ||
+                                safeFormat(t.date, 'MMMM d, yyyy').toLowerCase().includes(stockInSearch.toLowerCase())
+                              )
+                              .map((t) => {
                               const item = items.find(i => i.id === t.item_id);
                               const cost = t.cost_price || item?.cost_price || 0;
                               const amount = cost * t.quantity;
@@ -907,12 +1175,13 @@ export default function Dashboard() {
                     <form onSubmit={(e) => handleTransaction(e, 'OUT')} className="space-y-8">
                       <div className="space-y-3">
                         <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Select Item</label>
-                        <select name="item_id" required className="input-refined">
-                          <option value="">Choose an item...</option>
-                          {items.map(item => (
-                            <option key={item.id} value={item.id}>{item.name} ({item.item_code})</option>
-                          ))}
-                        </select>
+                        <SearchableSelect 
+                          items={items} 
+                          value={selectedStockOutItem} 
+                          onChange={setSelectedStockOutItem} 
+                          placeholder="Search for an item..."
+                          required
+                        />
                       </div>
 
                       <div className="grid grid-cols-2 gap-8">
@@ -929,6 +1198,25 @@ export default function Dashboard() {
                             <option value="DAMAGE">DAMAGE</option>
                             <option value="ADJUSTMENT">ADJUSTMENT</option>
                           </select>
+                        </div>
+                      </div>
+
+                      {/* Customer Details for Receipt */}
+                      <div className="space-y-4 border-t border-stone-100 pt-4">
+                        <h4 className="text-sm font-bold text-stone-900">Customer Details (Optional for Receipt)</h4>
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Customer Name</label>
+                          <input type="text" name="customer_name" className="input-refined" placeholder="Enter customer name" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-8">
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Address</label>
+                            <input type="text" name="customer_address" className="input-refined" placeholder="Enter address" />
+                          </div>
+                          <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">TIN</label>
+                            <input type="text" name="customer_tin" className="input-refined" placeholder="Enter TIN" />
+                          </div>
                         </div>
                       </div>
 
@@ -975,6 +1263,16 @@ export default function Dashboard() {
                           Stock Out History
                         </p>
                       </div>
+                      <div className="relative group">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 group-focus-within:text-rose-500 transition-colors" size={14} />
+                        <input 
+                          type="text" 
+                          placeholder="Search history..." 
+                          className="pl-9 pr-4 py-2 bg-white border border-stone-200 rounded-xl text-xs font-bold text-stone-600 focus:outline-hidden focus:ring-4 focus:ring-rose-500/5 transition-all w-48"
+                          value={stockOutSearch}
+                          onChange={(e) => setStockOutSearch(e.target.value)}
+                        />
+                      </div>
                     </div>
                     
                     <div className="card-premium">
@@ -993,14 +1291,28 @@ export default function Dashboard() {
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-stone-100/60">
-                            {transactions.filter(t => t.type === 'OUT').length === 0 && (
+                            {transactions
+                              .filter(t => t.type === 'OUT')
+                              .filter(t => 
+                                t.item_name?.toLowerCase().includes(stockOutSearch.toLowerCase()) ||
+                                t.particulars.toLowerCase().includes(stockOutSearch.toLowerCase()) ||
+                                safeFormat(t.date, 'MMMM d, yyyy').toLowerCase().includes(stockOutSearch.toLowerCase())
+                              )
+                              .length === 0 && (
                               <tr>
                                 <td colSpan={8} className="px-6 py-10 text-center text-stone-400 text-xs font-medium italic">
-                                  No stock out transactions recorded yet.
+                                  No stock out transactions found.
                                 </td>
                               </tr>
                             )}
-                            {transactions.filter(t => t.type === 'OUT').map((t) => {
+                            {transactions
+                              .filter(t => t.type === 'OUT')
+                              .filter(t => 
+                                t.item_name?.toLowerCase().includes(stockOutSearch.toLowerCase()) ||
+                                t.particulars.toLowerCase().includes(stockOutSearch.toLowerCase()) ||
+                                safeFormat(t.date, 'MMMM d, yyyy').toLowerCase().includes(stockOutSearch.toLowerCase())
+                              )
+                              .map((t) => {
                               const item = items.find(i => i.id === t.item_id);
                               const cost = t.cost_price || item?.cost_price || 0;
                               const retail = t.retail_price || item?.retail_price || 0;
@@ -1036,7 +1348,122 @@ export default function Dashboard() {
                 </div>
               )}
 
-          {activeTab === 'register' && (
+          {activeTab === 'receipts' && (
+                <div className="space-y-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-stone-100">
+                    <div>
+                      <h3 className="text-xl font-bold text-stone-900 font-display">Receipts History</h3>
+                      <p className="text-sm text-stone-500">View and reprint past sales and delivery transactions</p>
+                    </div>
+                    <div className="flex items-center gap-4 w-full sm:w-auto">
+                      <select 
+                        value={receiptTypeFilter}
+                        onChange={(e) => setReceiptTypeFilter(e.target.value as 'ALL' | 'IN' | 'OUT')}
+                        className="input-refined min-w-[150px]"
+                      >
+                        <option value="ALL">All Receipts</option>
+                        <option value="OUT">Sales Invoice (Stock Out)</option>
+                        <option value="IN">Delivery Receipt (Stock In)</option>
+                      </select>
+                      <select 
+                        value={receiptMonth}
+                        onChange={(e) => setReceiptMonth(e.target.value)}
+                        className="input-refined min-w-[120px]"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <option key={i} value={i}>
+                            {new Date(2000, i, 1).toLocaleString('default', { month: 'long' })}
+                          </option>
+                        ))}
+                      </select>
+                      <select 
+                        value={receiptYear}
+                        onChange={(e) => setReceiptYear(e.target.value)}
+                        className="input-refined min-w-[100px]"
+                      >
+                        {Array.from({ length: 5 }, (_, i) => {
+                          const year = new Date().getFullYear() - i;
+                          return <option key={year} value={year}>{year}</option>;
+                        })}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="card-premium">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-stone-50/50 border-b border-stone-200/60">
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Date</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Receipt No.</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Customer</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em]">Item</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em] text-center">Qty</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em] text-right">Total Amount</th>
+                            <th className="px-6 py-5 text-[10px] font-bold text-stone-400 uppercase tracking-[0.2em] text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100/60">
+                          {transactions
+                            .filter(t => receiptTypeFilter === 'ALL' || t.type === receiptTypeFilter)
+                            .filter(t => {
+                              const tDate = new Date(t.date);
+                              return tDate.getMonth().toString() === receiptMonth && 
+                                     tDate.getFullYear().toString() === receiptYear;
+                            })
+                            .map((t) => (
+                              <tr key={t.id} className="hover:bg-stone-50/80 transition-colors group">
+                                <td className="px-6 py-5 text-sm font-medium text-stone-600">
+                                  {safeFormat(t.date, 'MMM dd, yyyy hh:mm a')}
+                                </td>
+                                <td className="px-6 py-5">
+                                  <p className="font-mono text-sm font-bold text-stone-900">#{t.id}</p>
+                                  <span className={cn(
+                                    "px-2 py-0.5 text-[10px] font-bold rounded-md mt-1 inline-block uppercase",
+                                    t.type === 'IN' ? "bg-teal-100 text-teal-700" : "bg-purple-100 text-purple-700"
+                                  )}>
+                                    {t.type === 'IN' ? 'Delivery' : 'Invoice'}
+                                  </span>
+                                </td>
+                                <td className="px-6 py-5 text-sm text-stone-600">
+                                  {t.customer_name || <span className="text-stone-400 italic">Walk-in</span>}
+                                </td>
+                                <td className="px-6 py-5">
+                                  <p className="text-sm font-bold text-stone-800">{t.item_name}</p>
+                                  <p className="text-xs text-stone-500">{t.particulars}</p>
+                                </td>
+                                <td className="px-6 py-5 text-center font-mono text-sm text-stone-600">
+                                  {t.quantity}
+                                </td>
+                                <td className="px-6 py-5 text-right font-mono text-sm font-bold text-emerald-600">
+                                  ₱{((t.retail_price || 0) * t.quantity).toFixed(2)}
+                                </td>
+                                <td className="px-6 py-5 text-right">
+                                  <button 
+                                    onClick={() => handleReprintReceipt(t)}
+                                    className="px-3 py-1.5 bg-stone-100 text-stone-600 hover:bg-emerald-100 hover:text-emerald-600 rounded-lg text-xs font-bold transition-colors inline-flex items-center gap-2"
+                                  >
+                                    <ClipboardList size={14} />
+                                    Reprint
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          {transactions.filter(t => (receiptTypeFilter === 'ALL' || t.type === receiptTypeFilter) && new Date(t.date).getMonth().toString() === receiptMonth && new Date(t.date).getFullYear().toString() === receiptYear).length === 0 && (
+                            <tr>
+                              <td colSpan={7} className="px-6 py-12 text-center text-stone-400 text-sm">
+                                No receipts found for the selected period and type.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'register' && (
             <div className="max-w-4xl mx-auto">
               <div className="card-premium p-10">
                 <div className="flex items-center gap-6 mb-10">
@@ -1544,6 +1971,12 @@ export default function Dashboard() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Hidden Invoice Component */}
+      <div style={{ display: 'none' }}>
+        {invoiceData && receiptType === 'INVOICE' && <InvoiceTemplate ref={invoiceRef} transaction={invoiceData} />}
+        {invoiceData && receiptType === 'DELIVERY' && <DeliveryReceiptTemplate ref={deliveryRef} transaction={invoiceData} />}
+      </div>
     </main>
     </motion.div>
   );

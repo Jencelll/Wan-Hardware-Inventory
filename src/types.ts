@@ -1,8 +1,19 @@
+export interface Supplier {
+  id: number;
+  name: string;
+  contact_person?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  created_at: string;
+}
+
 export interface User {
   id: number;
   name: string;
   email: string;
   role: 'super_admin' | 'admin' | 'staff';
+  store?: string;
 }
 
 export interface Item {
@@ -31,4 +42,7 @@ export interface Transaction {
   cost_price?: number;
   retail_price?: number;
   date: string;
+  customer_name?: string;
+  customer_address?: string;
+  customer_tin?: string;
 }

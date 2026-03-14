@@ -2,6 +2,7 @@ import React from 'react';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
+import CatMoonDashboard from './pages/CatMoonDashboard';
 import { Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -30,6 +31,8 @@ export default function App() {
         >
           <LoginPage />
         </motion.div>
+      ) : user.store === 'CATMOON' ? (
+        <CatMoonDashboard key="catmoon-dashboard" />
       ) : (
         <Dashboard key="dashboard" />
       )}

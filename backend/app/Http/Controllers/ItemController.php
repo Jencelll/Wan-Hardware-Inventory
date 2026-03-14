@@ -7,9 +7,11 @@ use Illuminate\Http\Request;
 
 class ItemController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $items = Item::withSum(['transactions as total_in' => function ($query) {
+        $store = $request->user()->store ?? 'WAN';
+        $items = Item::where('store', $store)
+        ->withSum(['transactions as total_in' => function ($query) {
             $query->where('type', 'IN');
         }], 'quantity')
         ->withSum(['transactions as total_out' => function ($query) {
@@ -24,7 +26,7 @@ class ItemController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'item_code' => 'required|unique:items,item_code',
+            'item_code' => 'required',
             'name' => 'required',
             'category' => 'required',
             'uom' => 'required',
@@ -33,7 +35,19 @@ class ItemController extends Controller
             'initial_count' => 'required|integer',
         ]);
 
+        $store = $request->user()->store ?? 'WAN';
+        
+        // Check uniqueness within the store
+        $exists = Item::where('store', $store)
+            ->where('item_code', $validated['item_code'])
+            ->exists();
+            
+        if ($exists) {
+            return response()->json(['message' => 'The item code has already been taken.'], 422);
+        }
+
         $validated['current_stock'] = $validated['initial_count'];
+        $validated['store'] = $store;
 
         $item = Item::create($validated);
 
@@ -48,7 +62,7 @@ class ItemController extends Controller
     public function update(Request $request, Item $item)
     {
         $validated = $request->validate([
-            'item_code' => 'required|unique:items,item_code,' . $item->id,
+            'item_code' => 'required',
             'name' => 'required',
             'category' => 'required',
             'uom' => 'required',
@@ -56,6 +70,23 @@ class ItemController extends Controller
             'retail_price' => 'required|numeric',
             'initial_count' => 'required|integer',
         ]);
+        
+        $store = $request->user()->store ?? 'WAN';
+        
+        // Ensure item belongs to store
+        if ($item->store !== $store) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Check uniqueness within the store
+        $exists = Item::where('store', $store)
+            ->where('item_code', $validated['item_code'])
+            ->where('id', '!=', $item->id)
+            ->exists();
+            
+        if ($exists) {
+            return response()->json(['message' => 'The item code has already been taken.'], 422);
+        }
 
         if (isset($validated['initial_count'])) {
             $diff = $validated['initial_count'] - $item->initial_count;
